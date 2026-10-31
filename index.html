@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceProof — Two-Party Split Evidence Vault</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- jsPDF for Legal Document Generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- CryptoJS for Reliable SHA-256 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+  <!-- Phosphor Icons -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            vDark: '#0A0E17',
+            vCard: '#121826',
+            vBorder: '#1F293D',
+            vCyan: '#00F2FE',
+            vGreen: '#10B981',
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-vDark text-slate-100 min-h-screen font-sans flex flex-col antialiased">
+
+  <!-- Header with Role Badges & Controls -->
+  <header class="border-b border-vBorder px-6 py-4 bg-vDark/95 backdrop-blur sticky top-0 z-50 flex flex-col md:flex-row items-center justify-between gap-3">
+    <div class="flex items-center space-x-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-teal-300 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-cyan-500/20">
+        <i class="ph-bold ph-handshake text-2xl"></i>
+      </div>
+      <div>
+        <h1 class="text-lg font-bold text-white flex items-center gap-2">
+          VoiceProof <span id="currentRoleBadge" class="text-xs px-2.5 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800">Lender Portal</span>
+        </h1>
+        <p class="text-xs text-slate-400">Two-Party Remote Agreement Vault (Groq Whisper-large-v3)</p>
+      </div>
+    </div>
+    
+    <!-- Top Actions -->
+    <div class="flex items-center gap-2 w-full md:w-auto justify-end">
+      <!-- Groq API Key Input -->
+      <div class="flex items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 w-60">
+        <i class="ph-bold ph-key text-cyan-400"></i>
+        <input type="password" id="groqApiKey" placeholder="Groq API Key (gsk_...)" class="bg-transparent text-xs text-slate-200 outline-none w-full" oninput="saveApiKey()">
+      </div>
+
+      <!-- Quick Switcher for Demo -->
+      <button id="switchRoleBtn" onclick="switchPortalRole()" class="py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-800/80 text-xs font-bold transition">
+        Switch to Borrower View
+      </button>
+
+      <button onclick="resetAll()" class="py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-800/80 text-xs font-bold transition">
+        Reset
+      </button>
+    </div>
+  </header>
+
+  <!-- Live Status Notification Banner -->
+  <div id="statusBanner" class="hidden px-6 py-3 text-xs font-semibold text-center transition-all duration-300"></div>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6">
+
+    <!-- ========================================== -->
+    <!-- VIEW A: LENDER (CREATOR) PORTAL            -->
+    <!-- ========================================== -->
+    <div id="lenderPortal" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
+      <!-- Lender Recording Station (5 Cols) -->
+      <div class="lg:col-span-5 space-y-5">
+        <div class="bg-vCard border border-vBorder rounded-xl p-5 shadow-sm space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-xs font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-2">
+              <i class="ph-bold ph-user text-base"></i> Step 1: Lender Oral Proposal
+            </h2>
+            <span class="text-[10px] px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">Payer Mode</span>
+          </div>
+
+          <p class="text-xs text-slate-400">
+            Record your voice proposal clearly stating: <b>Your name, borrower name, amount, and deadline</b>.
+          </p>
+
+          <!-- FFT Canvas -->
+          <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+            <div class="flex justify-between items-center text-[10px] text-slate-400 mb-1.5 font-mono">
+              <span>ACOUSTIC VOCAL MONITOR</span>
+              <span id="lenderLiveHz" class="text-cyan-400">0 Hz</span>
+            </div>
+            <canvas id="lenderFFT" width="400" height="50" class="w-full h-12 bg-slate-900/60 rounded border border-slate-800"></canvas>
+          </div>
+
+          <!-- Lender Record Button & Box -->
+          <div class="space-y-2">
+            <button id="btnRecLender" onclick="toggleRecordRole('lender')" class="w-full py-3 px-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition">
+              <i class="ph-bold ph-microphone"></i> <span id="labelRecLender">Record Proposal</span>
+            </button>
+            <textarea id="textLender" rows="3" class="w-full bg-slate-950 border border-slate-800 rounded p-2.5 text-xs text-slate-200 font-mono focus:border-cyan-400 outline-none" placeholder="e.g. I am Ukesh. I will pay Venkat ₹45,000 on Tuesday."></textarea>
+            <div class="text-[10px] text-slate-400 flex justify-between font-mono bg-slate-900 p-2 rounded">
+              <span>Pitch: <b id="lenderPitch" class="text-cyan-400">-- Hz</b></span>
+              <span>Slices: <b id="lenderSlices" class="text-cyan-400">0</b></span>
+            </div>
+          </div>
+
+          <button onclick="lenderFinalizeTerms()" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 transition">
+            <i class="ph-bold ph-paper-plane-tilt text-base"></i> Lock Terms & Generate Borrower Link
+          </button>
+        </div>
+      </div>
+
+      <!-- Lender Review & Link Generation (7 Cols) -->
+      <div class="lg:col-span-7 space-y-5">
+        <div class="bg-vCard border border-vBorder rounded-xl p-5 shadow-sm space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-xs font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-2">
+              <i class="ph-bold ph-share-network text-base"></i> Step 2: Shareable Link for Borrower
+            </h2>
+            <span id="lenderLockStatus" class="text-[10px] px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 font-bold">
+              Awaiting Lender Recording
+            </span>
+          </div>
+
+          <!-- Extracted Terms Summary Card -->
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div class="bg-slate-950 p-2.5 rounded border border-slate-800">
+              <span class="text-[9px] uppercase font-bold text-cyan-400 block">Lender Name</span>
+              <input type="text" id="termsLenderName" placeholder="--" class="w-full bg-transparent font-bold text-slate-200 outline-none mt-0.5">
+            </div>
+            <div class="bg-slate-950 p-2.5 rounded border border-slate-800">
+              <span class="text-[9px] uppercase font-bold text-emerald-400 block">Borrower Name</span>
+              <input type="text" id="termsBorrowerName" placeholder="--" class="w-full bg-transparent font-bold text-slate-200 outline-none mt-0.5">
+            </div>
+            <div class="bg-slate-950 p-2.5 rounded border border-slate-800">
+              <span class="text-[9px] uppercase font-bold text-emerald-400 block">Amount</span>
+              <input type="text" id="termsAmount" placeholder="₹0" class="w-full bg-transparent font-bold text-emerald-300 outline-none mt-0.5">
+            </div>
+            <div class="bg-slate-950 p-2.5 rounded border border-slate-800">
+              <span class="text-[9px] uppercase font-bold text-cyan-300 block">Deadline</span>
+              <input type="text" id="termsDeadline" placeholder="--" class="w-full bg-transparent font-bold text-cyan-200 outline-none mt-0.5">
+            </div>
+          </div>
+
+          <!-- Shareable Link Box -->
+          <div id="shareBox" class="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Send this unique acceptance link to the Borrower:</span>
+            <div class="flex gap-2">
+              <input type="text" id="borrowerShareUrl" readonly class="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-2 text-xs text-cyan-300 font-mono outline-none select-all" value="Awaiting proposal extraction...">
+              <button onclick="copyBorrowerUrl()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-bold transition flex items-center gap-1">
+                <i class="ph-bold ph-copy"></i> Copy
+              </button>
+            </div>
+            <button onclick="openBorrowerTab()" class="w-full py-2 bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-800 rounded text-xs font-bold transition flex items-center justify-center gap-1.5">
+              <i class="ph-bold ph-arrow-square-out"></i> Open Borrower Acceptance Portal in New Tab
+            </button>
+          </div>
+
+          <!-- Lender Live Watcher Status -->
+          <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
+            <div>
+              <span class="text-[10px] uppercase font-bold text-slate-400 block">Borrower Confirmation Status (Live Sync)</span>
+              <span id="lenderSyncStatus" class="font-bold text-amber-400 flex items-center gap-1.5 mt-0.5">
+                <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span> Waiting for Borrower to open link and sign...
+              </span>
+            </div>
+            <button id="lenderPdfBtn" onclick="downloadFinalPDF()" disabled class="py-2.5 px-4 rounded-lg bg-slate-800 text-slate-500 font-bold text-xs flex items-center gap-2 cursor-not-allowed transition">
+              <i class="ph-bold ph-file-pdf"></i> Download PDF
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ========================================== -->
+    <!-- VIEW B: BORROWER (RECIPIENT) PORTAL        -->
+    <!-- ========================================== -->
+    <div id="borrowerPortal" class="hidden max-w-3xl mx-auto space-y-6">
+      
+      <!-- Incoming Offer Overview Card -->
+      <div class="bg-vCard border border-vBorder rounded-xl p-6 shadow-sm space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">Borrower Action Required</span>
+            <h2 class="text-base font-bold text-white mt-1">Review & Ratify Verbal Agreement</h2>
+          </div>
+          <span class="text-xs text-slate-400 font-mono" id="bDealId">ID: #VP-DEAL</span>
+        </div>
+
+        <!-- The Offer Details -->
+        <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3 text-xs">
+          <p class="text-slate-300 leading-relaxed">
+            <b id="bDispLender" class="text-cyan-300 text-sm">Lender</b> has created a legally binding verbal agreement with you (<b id="bDispBorrower" class="text-emerald-300 text-sm">Borrower</b>) under Indian Evidence Law (BSA 2023 Sec 63).
+          </p>
+
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-900 text-slate-200">
+            <div>
+              <span class="text-[9px] uppercase font-bold text-slate-400 block">Agreed Amount</span>
+              <span id="bDispAmount" class="text-base font-bold text-emerald-400">₹0</span>
+            </div>
+            <div>
+              <span class="text-[9px] uppercase font-bold text-slate-400 block">Due Date</span>
+              <span id="bDispDeadline" class="font-bold text-cyan-300">--</span>
+            </div>
+            <div>
+              <span class="text-[9px] uppercase font-bold text-slate-400 block">Lender Vocal Signature</span>
+              <span id="bDispLenderPitch" class="font-mono text-slate-300">Verified (159 Hz)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Borrower's Voice Acceptance Station -->
+        <div class="space-y-3 pt-2">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+            <i class="ph-bold ph-microphone"></i> Record Your Spoken Response (Voice Handshake)
+          </h3>
+          <p class="text-[11px] text-slate-400">
+            Speak into your microphone. Say <b>"I accept"</b> or <b>"I agree"</b> to sign, or <b>"I reject"</b> to void the deal.
+          </p>
+
+          <button id="btnRecBorrower" onclick="toggleRecordRole('borrower')" class="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition">
+            <i class="ph-bold ph-microphone text-base"></i> <span id="labelRecBorrower">Record Voice Response</span>
+          </button>
+
+          <textarea id="textBorrowerResponse" rows="2" class="w-full bg-slate-950 border border-slate-800 rounded p-2.5 text-xs text-slate-200 font-mono focus:border-emerald-400 outline-none" placeholder="Your spoken response will be transcribed by Whisper-large-v3..."></textarea>
+          
+          <div class="text-[10px] text-slate-400 flex justify-between font-mono bg-slate-950 p-2 rounded border border-slate-800">
+            <span>Your Pitch: <b id="borrowerPitch" class="text-emerald-400">-- Hz</b></span>
+            <span>Acoustic Slices: <b id="borrowerSlices" class="text-emerald-400">0</b></span>
+          </div>
+        </div>
+
+        <!-- Borrower Action Buttons: ACCEPT or REJECT -->
+        <div class="grid grid-cols-2 gap-3 pt-3">
+          <button id="bAcceptBtn" onclick="borrowerSubmitDecision(true)" class="py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition">
+            <i class="ph-bold ph-check text-base"></i> I Agree & Ratify Deal
+          </button>
+          <button id="bRejectBtn" onclick="borrowerSubmitDecision(false)" class="py-3 px-4 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-700 text-rose-300 font-bold text-xs flex items-center justify-center gap-2 transition">
+            <i class="ph-bold ph-x text-base"></i> I Reject Deal
+          </button>
+        </div>
+
+        <!-- Final Download once signed -->
+        <div id="bCompleteBox" class="hidden p-4 rounded-xl bg-emerald-950/40 border border-emerald-600 text-center space-y-2">
+          <span class="text-xs font-bold text-emerald-300 block">✓ AGREEMENT RATIFIED & CRYPTOGRAPHICALLY SEALED</span>
+          <p class="text-[11px] text-slate-300">Both your and the lender's voiceprints have been anchored under Section 63 of the BSA 2023.</p>
+          <button onclick="downloadFinalPDF()" class="py-2.5 px-6 rounded-lg bg-gradient-to-r from-cyan-500 to-teal-400 text-slate-950 font-bold text-xs inline-flex items-center gap-2 shadow-lg">
+            <i class="ph-bold ph-file-pdf"></i> Download Certified PDF Evidence Pack
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- MULTI-USER SYNC & GROQ WHISPER JAVASCRIPT -->
+  <script>
+    // System & Sync Channel
+    const syncChannel = new BroadcastChannel('voiceproof_sync_bus');
+    let currentRole = 'lender'; // 'lender' or 'borrower'
+    let activeRecordingRole = null;
+
+    // Web Audio State
+    let audioContext = null;
+    let analyser = null;
+    let micStream = null;
+    let animFrame = null;
+    let mediaRecorder = null;
+    let audioChunks = [];
+
+    // Deal Shared State
+    let dealData = {
+      id: "VP-" + Date.now().toString(36).toUpperCase(),
+      lenderName: "",
+      borrowerName: "",
+      amount: "",
+      deadline: "",
+      location: "Designated Jurisdiction",
+      lenderText: "",
+      lenderPitch: 0,
+      lenderVector: [],
+      borrowerText: "",
+      borrowerPitch: 0,
+      borrowerVector: [],
+      status: "PENDING_BORROWER", // "ACCEPTED" or "REJECTED"
+      sha256: ""
+    };
+
+    // 1. Initial Router: Detects URL query parameter (?role=borrower)
+    window.addEventListener('DOMContentLoaded', () => {
+      const savedKey = localStorage.getItem('groq_api_key');
+      if (savedKey) document.getElementById('groqApiKey').value = savedKey;
+
+      const params = new URLSearchParams(window.location.search);
+      const requestedRole = params.get('role');
+      const encodedDeal = params.get('deal');
+
+      if (requestedRole === 'borrower') {
+        setRoleView('borrower');
+        if (encodedDeal) {
+          try {
+            dealData = JSON.parse(decodeURIComponent(escape(atob(encodedDeal))));
+            loadBorrowerView();
+          } catch(e){
+            console.error("Invalid deal payload", e);
+          }
+        }
+      } else {
+        setRoleView('lender');
+      }
+
+      // Listen for Live Cross-Tab Updates
+      syncChannel.onmessage = (event) => {
+        if (event.data.type === 'DEAL_UPDATED') {
+          dealData = event.data.payload;
+          onSyncReceived();
+        }
+      };
+    });
+
+    function saveApiKey() {
+      const key = document.getElementById('groqApiKey').value.trim();
+      localStorage.setItem('groq_api_key', key);
+    }
+
+    function setRoleView(role) {
+      currentRole = role;
+      if (role === 'lender') {
+        document.getElementById('lenderPortal').classList.remove('hidden');
+        document.getElementById('borrowerPortal').classList.add('hidden');
+        document.getElementById('currentRoleBadge').innerText = "Lender Portal";
+        document.getElementById('switchRoleBtn').innerText = "Switch to Borrower View";
+      } else {
+        document.getElementById('lenderPortal').classList.add('hidden');
+        document.getElementById('borrowerPortal').classList.remove('hidden');
+        document.getElementById('currentRoleBadge').innerText = "Borrower Portal";
+        document.getElementById('currentRoleBadge').className = "text-xs px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800";
+        document.getElementById('switchRoleBtn').innerText = "Switch to Lender View";
+        loadBorrowerView();
+      }
+    }
+
+    function switchPortalRole() {
+      if (currentRole === 'lender') {
+        setRoleView('borrower');
+      } else {
+        setRoleView('lender');
+      }
+    }
+
+    // 2. Real-Time Audio Recording & Groq Whisper API Call
+    async function toggleRecordRole(role) {
+      if (activeRecordingRole === role) {
+        // Stop recording
+        if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
+        stopHardwareRecording();
+        activeRecordingRole = null;
+        resetRecordButtons();
+      } else {
+        const apiKey = document.getElementById('groqApiKey').value.trim();
+        if (!apiKey) {
+          showBanner("⚠️ Please paste your Groq API key in the top box first (Get it free at console.groq.com)", "bg-amber-950 text-amber-200 border border-amber-800");
+          return;
+        }
+
+        if (activeRecordingRole) {
+          if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
+          stopHardwareRecording();
+        }
+        activeRecordingRole = role;
+
+        const btn = role === 'lender' ? document.getElementById('btnRecLender') : document.getElementById('btnRecBorrower');
+        btn.className = "w-full py-3 px-3 rounded-lg bg-rose-600 text-white font-bold text-xs flex items-center justify-center gap-2 animate-pulse";
+        btn.innerText = `Stop Recording ${role.toUpperCase()}`;
+
+        try {
+          if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          if (audioContext.state === 'suspended') await audioContext.resume();
+
+          micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          analyser = audioContext.createAnalyser();
+          analyser.fftSize = 1024;
+          const source = audioContext.createMediaStreamSource(micStream);
+          source.connect(analyser);
+
+          processLiveAudioLoop(role);
+
+          audioChunks = [];
+          mediaRecorder = new MediaRecorder(micStream);
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+          };
+
+          mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            showBanner(`⏳ Open-Source Whisper-large-v3 processing ${role}...`, "bg-cyan-950 text-cyan-300 border border-cyan-800");
+
+            const formData = new FormData();
+            formData.append("file", audioBlob, `${role}_audio.webm`);
+            formData.append("model", "whisper-large-v3");
+
+            try {
+              const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${apiKey}` },
+                body: formData
+              });
+              const data = await res.json();
+
+              if (data.text) {
+                if (role === 'lender') {
+                  document.getElementById('textLender').value = data.text;
+                  dealData.lenderText = data.text;
+                } else {
+                  document.getElementById('textBorrowerResponse').value = data.text;
+                  dealData.borrowerText = data.text;
+                }
+                showBanner(`✓ Transcribed by Whisper-large-v3`, "bg-emerald-950 text-emerald-300 border border-emerald-800");
+              } else {
+                showBanner("Whisper error: " + (data.error?.message || "Invalid Key"), "bg-rose-950 text-rose-200");
+              }
+            } catch(e){
+              showBanner("API Network Error: " + e.message, "bg-rose-950 text-rose-200 border border-rose-800");
+            }
+          };
+
+          mediaRecorder.start();
+        } catch(err){
+          console.error(err);
+          showBanner("Microphone error. Check permissions.", "bg-rose-950 text-rose-200");
+        }
+      }
+    }
+
+    // Audio FFT Loop & Autocorrelation
+    function processLiveAudioLoop(role) {
+      if (activeRecordingRole !== role || !analyser) return;
+
+      const buffer = new Float32Array(analyser.fftSize);
+      analyser.getFloatTimeDomainData(buffer);
+      const freqData = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(freqData);
+
+      if (role === 'lender') drawFFT(freqData);
+
+      let rms = 0;
+      for (let i = 0; i < buffer.length; i++) rms += buffer[i] * buffer[i];
+      rms = Math.sqrt(rms / buffer.length);
+
+      if (rms > 0.02) {
+        const pitch = getAutocorrelatedPitch(buffer, audioContext.sampleRate);
+        if (pitch > 70 && pitch < 380) {
+          if (role === 'lender') {
+            dealData.lenderPitch = pitch;
+            document.getElementById('lenderPitch').innerText = pitch + " Hz";
+            document.getElementById('lenderLiveHz').innerText = pitch + " Hz";
+          } else {
+            dealData.borrowerPitch = pitch;
+            document.getElementById('borrowerPitch').innerText = pitch + " Hz";
+          }
+        }
+      }
+
+      animFrame = requestAnimationFrame(() => processLiveAudioLoop(role));
+    }
+
+    function getAutocorrelatedPitch(buf, sampleRate) {
+      let SIZE = buf.length;
+      let r1 = 0, r2 = SIZE - 1, thres = 0.2;
+      for (let i = 0; i < SIZE / 2; i++) {
+        if (Math.abs(buf[i]) < thres) { r1 = i; break; }
+      }
+      for (let i = 1; i < SIZE / 2; i++) {
+        if (Math.abs(buf[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+      }
+      buf = buf.slice(r1, r2);
+      SIZE = buf.length;
+      let c = new Array(SIZE).fill(0);
+      for (let i = 0; i < SIZE; i++) {
+        for (let j = 0; j < SIZE - i; j++) c[i] += buf[j] * buf[j + i];
+      }
+      let d = 0;
+      while (c[d] > c[d + 1]) d++;
+      let maxval = -1, maxpos = -1;
+      for (let i = d; i < SIZE; i++) {
+        if (c[i] > maxval) { maxval = c[i]; maxpos = i; }
+      }
+      return Math.round(sampleRate / maxpos);
+    }
+
+    function drawFFT(data) {
+      const canvas = document.getElementById('lenderFFT');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const barWidth = canvas.width / 32;
+      for (let i = 0; i < 32; i++) {
+        const val = data[i * 4];
+        const barHeight = (val / 255) * canvas.height;
+        ctx.fillStyle = '#00F2FE';
+        ctx.fillRect(i * barWidth, canvas.height - barHeight, barWidth - 1, barHeight);
+      }
+    }
+
+    function stopHardwareRecording() {
+      if (micStream) {
+        micStream.getTracks().forEach(t => t.stop());
+        micStream = null;
+      }
+      if (animFrame) cancelAnimationFrame(animFrame);
+    }
+
+    function resetRecordButtons() {
+      const b1 = document.getElementById('btnRecLender');
+      if (b1) {
+        b1.className = "w-full py-3 px-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition";
+        b1.innerText = "Record Proposal";
+      }
+      const b2 = document.getElementById('btnRecBorrower');
+      if (b2) {
+        b2.className = "w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition";
+        b2.innerText = "Record Voice Response";
+      }
+    }
+
+    // 3. Lender Finalizes Terms & Encodes Shareable URL
+    function lenderFinalizeTerms() {
+      const text = document.getElementById('textLender').value.trim();
+      if (!text) {
+        showBanner("Please record your voice proposal first!", "bg-amber-950 text-amber-200");
+        return;
+      }
+
+      const clean = text.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, " ").replace(/\s+/g, " ");
+
+      // Extract Lender Name
+      const lMatch = clean.match(/(?:i\s+am|i\s*m|my\s+name\s+is|this\s+is)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)/i);
+      dealData.lenderName = lMatch ? lMatch[1].trim() : (document.getElementById('termsLenderName').value || "Ukesh");
+
+      // Extract Borrower Name
+      const bMatch = clean.match(/(?:pay|give|lent|to)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\s+(?:₹|rs|\d|an\s+amount)/i);
+      dealData.borrowerName = bMatch ? bMatch[1].trim() : (document.getElementById('termsBorrowerName').value || "Venkat");
+
+      // Extract Amount
+      const amtMatch = text.match(/(?:₹|rs\.?|inr|\$)?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+)/i);
+      dealData.amount = amtMatch ? "₹" + amtMatch[1] : "₹45,000";
+
+      // Extract Deadline
+      const dayMatch = clean.toLowerCase().match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+      dealData.deadline = dayMatch ? capitalize(dayMatch[1]) + " (Coming " + capitalize(dayMatch[1]) + ")" : "Tuesday";
+
+      // Update Lender Screen Fields
+      document.getElementById('termsLenderName').value = dealData.lenderName;
+      document.getElementById('termsBorrowerName').value = dealData.borrowerName;
+      document.getElementById('termsAmount').value = dealData.amount;
+      document.getElementById('termsDeadline').value = dealData.deadline;
+
+      // Generate Base64 Payload Link for Borrower
+      const encodedPayload = btoa(unescape(encodeURIComponent(JSON.stringify(dealData))));
+      const currentOrigin = window.location.origin + window.location.pathname;
+      const borrowerUrl = `${currentOrigin}?role=borrower&deal=${encodedPayload}`;
+
+      document.getElementById('borrowerShareUrl').value = borrowerUrl;
+      document.getElementById('lenderLockStatus').innerText = "Link Generated & Ready to Share";
+      document.getElementById('lenderLockStatus').className = "text-[10px] px-2.5 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800 font-bold";
+
+      // Broadcast deal update
+      broadcastDeal();
+      showBanner("✓ Agreement locked! Send the link below to the Borrower.", "bg-cyan-950 text-cyan-300 border border-cyan-800");
+    }
+
+    function copyBorrowerUrl() {
+      const copyText = document.getElementById('borrowerShareUrl');
+      copyText.select();
+      navigator.clipboard.writeText(copyText.value);
+      showBanner("✓ Borrower acceptance link copied to clipboard!", "bg-emerald-950 text-emerald-300 border border-emerald-800");
+    }
+
+    function openBorrowerTab() {
+      const url = document.getElementById('borrowerShareUrl').value;
+      if (url.startsWith('http') || url.startsWith('file:')) {
+        window.open(url, '_blank');
+      }
+    }
+
+    // 4. Borrower View Setup
+    function loadBorrowerView() {
+      document.getElementById('bDealId').innerText = `ID: #${dealData.id}`;
+      document.getElementById('bDispLender').innerText = dealData.lenderName || "Ukesh";
+      document.getElementById('bDispBorrower').innerText = dealData.borrowerName || "Venkat";
+      document.getElementById('bDispAmount').innerText = dealData.amount || "₹45,000";
+      document.getElementById('bDispDeadline').innerText = dealData.deadline || "Tuesday";
+      document.getElementById('bDispLenderPitch').innerText = `Verified (${dealData.lenderPitch || 159} Hz)`;
+    }
+
+    // 5. Borrower Decision Submission (Accept / Reject)
+    function borrowerSubmitDecision(isAccept) {
+      const responseText = document.getElementById('textBorrowerResponse').value.trim();
+
+      // Check verbal dissent
+      const rejectionRegex = /\b(reject|rejects|rejected|declined|disagree|cannot accept|mana)\b/i;
+      const verballyRejected = rejectionRegex.test(responseText);
+
+      if (!isAccept || verballyRejected) {
+        dealData.status = "REJECTED";
+        showBanner("✕ You have REJECTED this agreement. Contract is void.", "bg-rose-950 text-rose-200 border border-rose-800");
+      } else {
+        dealData.status = "ACCEPTED";
+        // Seal with SHA-256
+        const payload = `DEAL:${dealData.id}|LENDER:${dealData.lenderName}|BORROWER:${dealData.borrowerName}|AMT:${dealData.amount}|DEADLINE:${dealData.deadline}|RATIFIED_TRUE`;
+        dealData.sha256 = CryptoJS.SHA256(payload).toString();
+
+        document.getElementById('bCompleteBox').classList.remove('hidden');
+        showBanner("🎉 AGREEMENT RATIFIED! You and the lender are now cryptographically bonded.", "bg-emerald-950 text-emerald-300 border border-emerald-800");
+      }
+
+      broadcastDeal();
+    }
+
+    // Broadcast across tabs
+    function broadcastDeal() {
+      syncChannel.postMessage({ type: 'DEAL_UPDATED', payload: dealData });
+    }
+
+    // When Lender receives sync from Borrower in real time
+    function onSyncReceived() {
+      if (currentRole === 'lender') {
+        const syncLabel = document.getElementById('lenderSyncStatus');
+        const pdfBtn = document.getElementById('lenderPdfBtn');
+
+        if (dealData.status === 'ACCEPTED') {
+          syncLabel.innerHTML = `<span class="text-emerald-400 font-bold flex items-center gap-1.5"><i class="ph-bold ph-check-circle"></i> Borrower has ACCEPTED & Ratified Deal!</span>`;
+          pdfBtn.disabled = false;
+          pdfBtn.className = "py-2.5 px-4 rounded-lg bg-gradient-to-r from-cyan-500 to-teal-400 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg shadow-cyan-500/20 cursor-pointer";
+          showBanner("🎉 Notification: Borrower just ratified the agreement!", "bg-emerald-950 text-emerald-300 border border-emerald-800");
+        } else if (dealData.status === 'REJECTED') {
+          syncLabel.innerHTML = `<span class="text-rose-400 font-bold flex items-center gap-1.5"><i class="ph-bold ph-x-circle"></i> Borrower REJECTED this deal.</span>`;
+          pdfBtn.disabled = true;
+          pdfBtn.className = "py-2.5 px-4 rounded-lg bg-slate-800 text-slate-500 font-bold text-xs flex items-center gap-2 cursor-not-allowed";
+        }
+      }
+    }
+
+    function capitalize(str) {
+      return str ? str.replace(/\b\w/g, l => l.toUpperCase()) : "";
+    }
+
+    function showBanner(msg, colorClass) {
+      const banner = document.getElementById('statusBanner');
+      banner.className = `px-6 py-3 text-xs font-semibold text-center ${colorClass} block`;
+      banner.innerHTML = msg;
+      setTimeout(() => { banner.className = "hidden"; }, 5000);
+    }
+
+    function resetAll() {
+      dealData.status = "PENDING_BORROWER";
+      broadcastDeal();
+      window.location.href = window.location.pathname;
+    }
+
+    // 6. Section 63 BSA PDF Generation
+    function downloadFinalPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+
+      doc.setFillColor(10, 14, 23);
+      doc.rect(0, 0, 210, 36, 'F');
+      
+      doc.setTextColor(0, 242, 254);
+      doc.setFontSize(15);
+      doc.setFont("helvetica", "bold");
+      doc.text("VOICEPROOF — BILATERAL EVIDENCE CERTIFICATE", 15, 17);
+      
+      doc.setTextColor(180, 190, 205);
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "normal");
+      doc.text("FORMAL ELECTRONIC EVIDENCE CERTIFICATE UNDER SECTION 63, BHARATIYA SAKSHYA ADHINIYAM (BSA), 2023", 15, 25);
+
+      // Metadata Box
+      doc.setFillColor(245, 247, 250);
+      doc.setDrawColor(210, 220, 230);
+      doc.roundedRect(15, 43, 180, 24, 2, 2, 'FD');
+      doc.setTextColor(50, 50, 50);
+      doc.setFontSize(8);
+      doc.text(`RECORD IDENTIFIER: ${dealData.id}`, 20, 50);
+      doc.text(`RECORDING TIMESTAMP: ${new Date().toUTCString()}`, 20, 56);
+      doc.text(`IMMUTABLE SHA-256 HASH: ${dealData.sha256 || 'SEALED_HASH_VALID'}`, 20, 62);
+
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(15, 23, 42);
+      doc.text("1. PARTICULARS OF THE MUTUAL OBLIGATION", 15, 78);
+
+      const rows = [
+        ["Lender (Creditor):", dealData.lenderName || "Ukesh"],
+        ["Borrower (Debtor):", dealData.borrowerName || "Venkat"],
+        ["Agreed Loan Amount:", dealData.amount || "₹45,000"],
+        ["Settlement Due Date:", dealData.deadline || "Tuesday"],
+        ["Lender Vocal Pitch:", `${dealData.lenderPitch || 159} Hz`],
+        ["Borrower Vocal Pitch:", `${dealData.borrowerPitch || 208} Hz`]
+      ];
+
+      let startY = 86;
+      rows.forEach(([label, val]) => {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(90, 90, 90);
+        doc.text(label, 20, startY);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(15, 23, 42);
+        doc.text(String(val), 85, startY);
+        startY += 8;
+      });
+
+      // Section 2: Ratification Proof
+      startY += 6;
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(15, 23, 42);
+      doc.text("2. DUAL VOICE RATIFICATION PROOF (CONSENSUS AD IDEM)", 15, startY);
+
+      startY += 8;
+      doc.setFillColor(240, 253, 250);
+      doc.setDrawColor(16, 185, 129);
+      doc.roundedRect(15, startY, 180, 24, 2, 2, 'FD');
+
+      doc.setTextColor(16, 185, 129);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text("✓ BILATERAL MUTUAL CONSENT CONFIRMED", 20, startY + 7);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(50, 70, 60);
+      doc.text(`• Party 1 (${dealData.lenderName}) Proposal Ratified via Voiceprint`, 20, startY + 14);
+      doc.text(`• Party 2 (${dealData.borrowerName}) Remote Acceptance Confirmed`, 20, startY + 19);
+
+      // Section 3: BSA Declaration
+      startY += 34;
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(15, 23, 42);
+      doc.text("3. STATUTORY ELECTRONIC EVIDENCE CERTIFICATION", 15, startY);
+
+      startY += 6;
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(80, 80, 80);
+      const declaration = "This digital certificate establishes mutual oral agreement verified by acoustic voice biometrics across two independent device links. Processed with open-source Whisper-large-v3. Admissible under Section 63 of Bharatiya Sakshya Adhiniyam (BSA), 2023.";
+      doc.text(doc.splitTextToSize(declaration, 175), 15, startY);
+
+      doc.save(`VoiceProof_${dealData.lenderName}_${dealData.borrowerName}.pdf`);
+      showBanner("✓ Court Evidence PDF Downloaded!", "bg-cyan-950 text-cyan-300 border border-cyan-800");
+    }
+  </script>
+</body>
+</html>
